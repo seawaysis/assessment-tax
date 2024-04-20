@@ -14,12 +14,23 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+type Tax struct {
+	TotalIncome float32      `json:"totalIncome"`
+	Wht         float32      `json:"wht"`
+	Allowances  *[]allowance `json:"allowances"`
+}
+type allowance struct {
+	AllowanceType string  `json:"allowanceType"`
+	Amount        float32 `json:"amount"`
+}
+
 func main() {
 	e := echo.New()
+	e.Use()
 	e.GET("/", func(c echo.Context) error {
 		return c.String(http.StatusOK, "Hello, Go Bootcamp!")
 	})
-	e.GET("/tax/calculations", calculations)
+	e.POST("/tax/calculations", calculations, somemiddleware)
 
 	go func() {
 		err := godotenv.Load(".env")
@@ -45,7 +56,22 @@ func main() {
 	}
 
 }
-
+func somemiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		//fmt.Println("SomeMiddleware")
+		/*return c.JSON(
+			http.StatusBadGateway,
+			map[string]any{"message": "error"},
+		)*/ // if error
+		return next(c)
+	}
+}
 func calculations(c echo.Context) error {
-	return c.String(http.StatusOK, "getstatus !")
+	t := new(Tax)
+	err := c.Bind(&t)
+	if err != nil {
+		return c.JSON(http.StatusBadGateway, err)
+	}
+	return c.JSON(http.StatusOK, t)
+	//return c.String(http.StatusOK, c.Param("totalIncome"))
 }
