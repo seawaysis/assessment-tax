@@ -17,19 +17,16 @@ import (
 func main() {
 	e := echo.New()
 	e.GET("/", func(c echo.Context) error {
+		return c.String(http.StatusOK, "Hello, Go Bootcamp!")
+	})
+	e.GET("/tax/calculations", calculations)
+
+	go func() {
 		err := godotenv.Load(".env")
 		if err != nil {
 			log.Fatalf("Error loading .env file: %s", err)
 		}
-
-		// Getting and using a value from .env
-		username := os.Getenv("ADMIN_USERNAME")
-
-		fmt.Println(username)
-		return c.String(http.StatusOK, "Hello, Go Bootcamp!")
-	})
-	go func() {
-		e.Logger.Fatal(e.Start(":1323"))
+		e.Logger.Fatal(e.Start(fmt.Sprintf(":%s", os.Getenv("PORT"))))
 	}()
 	//graceful shutdown
 	gracefulStop := make(chan os.Signal, 1)
@@ -47,4 +44,8 @@ func main() {
 		fmt.Println("shut down the server")
 	}
 
+}
+
+func calculations(c echo.Context) error {
+	return c.String(http.StatusOK, "getstatus !")
 }
