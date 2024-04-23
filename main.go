@@ -76,9 +76,12 @@ func somemiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 }
 func calculations(c echo.Context) error {
 	inc := new(income)
+	t := &tax{Tax: 0.0}
 	err := c.Bind(&inc)
 	if err != nil {
 		return c.JSON(http.StatusBadGateway, err)
+	} else if inc.TotalIncome < 0 || inc.Wht < 0 {
+		return c.JSON(http.StatusBadGateway, "Please add positive number")
 	}
 	l := []struct {
 		min  float32
@@ -92,8 +95,8 @@ func calculations(c echo.Context) error {
 		{min: 2000001, max: 10000000000, rate: 35},
 	}
 
-	t := &tax{Tax: 0.0}
-	numTax := inc.TotalIncome - 60000.0
+	numTax := calDeduction(inc)
+
 	for _, v := range l {
 		if numTax >= v.min {
 			temp := (numTax - (v.min - 1))
@@ -104,11 +107,29 @@ func calculations(c echo.Context) error {
 			fmt.Printf("%.1f | %.1f | %.1f\n", numTax, temp, t.Tax)
 		}
 	}
+	calWht(inc, t)
+	return c.JSON(http.StatusOK, t)
+}
+func calDeduction(inc *income) float32 {
+	m := (inc.Allowances)
+	numTax := inc.TotalIncome - 60000.0
+	for _, v := range m {
+		//fmt.Printf("type => %s | amount => %.1f", v.AllowanceType, v.Amount)
+		if v.AllowanceType == "donation" {
+			if v.Amount > 100000.0 {
+				numTax = numTax - 100000.0
+			} else {
+				numTax = numTax - v.Amount
+			}
+		}
+	}
+	return numTax
+}
+func calWht(inc *income, t *tax) {
 	if inc.Wht > 0 {
 		t.Tax = t.Tax - inc.Wht
+		if t.Tax < 0 {
+			t.Tax = 0
+		}
 	}
-
-	//fmt.Printf("%T", m.AllowanceType)
-	return c.JSON(http.StatusOK, t)
-	//return c.String(http.StatusOK, inc)
 }
