@@ -20,9 +20,9 @@ import (
 //		rate int
 //	}
 type income struct {
-	TotalIncome float32      `json:"totalIncome"`
-	Wht         float32      `json:"wht"`
-	Allowances  *[]allowance `json:"allowances"`
+	TotalIncome float32     `json:"totalIncome" validate:"required"`
+	Wht         float32     `json:"wht"`
+	Allowances  []allowance `json:"allowances"`
 }
 type allowance struct {
 	AllowanceType string  `json:"allowanceType"`
@@ -104,7 +104,11 @@ func calculations(c echo.Context) error {
 			fmt.Printf("%.1f | %.1f | %.1f\n", numTax, temp, t.Tax)
 		}
 	}
+	if inc.Wht > 0 {
+		t.Tax = t.Tax - inc.Wht
+	}
 
+	//fmt.Printf("%T", m.AllowanceType)
 	return c.JSON(http.StatusOK, t)
-	//return c.String(http.StatusOK, c.Param("totalIncome"))
+	//return c.String(http.StatusOK, inc)
 }
