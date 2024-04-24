@@ -1,15 +1,45 @@
-FROM golang:1.21.9-alpine3.19 AS builder
+# FROM golang:1.21.9-alpine3.19 AS builder
+# WORKDIR /app
+# COPY . /app
+
+# #RUN go run main.go
+# RUN go build -o main main.go
+
+# # Build small images
+# FROM alpine:3.19
+# WORKDIR /app
+# COPY --from=builder /app/main .
+
+# EXPOSE 8080
+
+# CMD ["/app/main"]
+
+# syntax=docker/dockerfile:1
+
+FROM golang:1.21.9
+
+# Set destination for COPY
 WORKDIR /app
-COPY . /app
 
-#RUN go run main.go
-RUN go build -o main main.go
+# Download Go modules
+COPY go.mod go.sum ./
+RUN go mod download
 
-# Build small images
-FROM alpine:3.19
-WORKDIR /app
-COPY --from=builder /app/main .
+# Copy the source code. Note the slash at the end, as explained in
+# https://docs.docker.com/engine/reference/builder/#copy
+COPY . ./
 
+# Build
+RUN CGO_ENABLED=0 GOOS=linux go build -o /docker-gs-ping
+
+# Optional:
+# To bind to a TCP port, runtime parameters must be supplied to the docker command.
+# But we can document in the Dockerfile what ports
+# the application is going to listen on by default.
+# https://docs.docker.com/engine/reference/builder/#expose
 EXPOSE 8080
 
-CMD ["/app/main"]
+# Run
+CMD ["/docker-gs-ping"]
+
+#docker run -p 8080:8080 echo
