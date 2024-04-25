@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
+	_ "github.com/lib/pq"
 )
 
 type income struct {
@@ -45,6 +47,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Error loading .env file: %s", err)
 		}
+		prepareDB()
 		e.Logger.Fatal(e.Start(fmt.Sprintf(":%s", os.Getenv("PORT"))))
 	}()
 	//graceful shutdown
@@ -152,5 +155,51 @@ func calWht(inc *income, t *tax) {
 	}
 }
 func updateDeducatePerson(c echo.Context) error {
+	updateDeductions()
 	return c.JSON(http.StatusOK, c)
+}
+func connDB() *sql.DB {
+	connectionStr := fmt.Sprintf("user=%s password=%s dbname=%s port=5432 sslmode=disable", os.Getenv("POSTGRES_USER"), os.Getenv("POSTGRES_PASSWORD"), os.Getenv("POSTGRES_DB"))
+
+	conn, err := sql.Open("postgres", connectionStr)
+	if err != nil {
+		panic(err)
+	}
+	return conn
+}
+func prepareDB() {
+	conn := connDB()
+	_, err := conn.Exec("DROP TABLE deductions;")
+	if err != nil {
+		log.Fatal("can't create table ", err)
+	}
+	_, err = conn.Exec("CREATE TABLE IF NOT EXISTS deductions (id SERIAL PRIMARY KEY, category TEXT, amount INT);")
+	if err != nil {
+		log.Fatal("can't create table ", err)
+	}
+
+	_, err = conn.Exec("INSERT INTO deductions (category, amount) values ($1,$2),($3,$4) RETURNING amount", "personal", 100000, "kReceipt", 70000)
+	if err != nil {
+		log.Fatal("can't insert default data ", err)
+	}
+	defer conn.Close()
+}
+func updateDeductions() {
+	conn := connDB()
+	stmt, err := conn.Prepare("SELECT id,category,amount FROM deductions")
+	if err != nil {
+		log.Fatal("can't prepare data ", err)
+	}
+
+	rows, err := stmt.Query()
+	if err != nil {
+		log.Fatal("can't query data ", err)
+	}
+	for rows.Next() {
+		var id string
+		var category string
+		var amount int
+		rows.Scan(&id, &category, &amount)
+		fmt.Println(id, category, amount)
+	}
 }

@@ -1,9 +1,23 @@
+version: '3.9'
 services:
   postgres:
+    container_name: caltax_db
     image: postgres:16
+    restart: always
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: ktaxes
     ports:
       - '5432:5432'
+    volumes:
+      - ./caltax_db:/var/lib/postgresql/data"
+  # api:
+  #   container_name: "caltax"
+  #   build: 
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - 8080:8080
+  #   depends_on:
+  #     - postgres

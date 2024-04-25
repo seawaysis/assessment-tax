@@ -3,12 +3,12 @@
 # COPY . /app
 
 # #RUN go run main.go
-# RUN go build -o main main.go
+# RUN CGO_ENABLED=0 GOOS=linux go build -o main main.go
 
 # # Build small images
 # FROM alpine:3.19
 # WORKDIR /app
-# COPY --from=builder /app/main .
+# COPY --from=builder /app/main /app/main
 
 # EXPOSE 8080
 
@@ -16,7 +16,7 @@
 
 # syntax=docker/dockerfile:1
 
-FROM golang:1.21.9
+FROM golang:1.21.9-alpine3.19 AS builder
 
 # Set destination for COPY
 WORKDIR /app
@@ -30,7 +30,12 @@ RUN go mod download
 COPY . ./
 
 # Build
-RUN CGO_ENABLED=0 GOOS=linux go build -o /docker-gs-ping
+RUN CGO_ENABLED=0 GOOS=linux go build -o /caltax .
+
+# # Build small images
+# FROM alpine3.19
+# WORKDIR /app
+# COPY --from=builder /caltax .
 
 # Optional:
 # To bind to a TCP port, runtime parameters must be supplied to the docker command.
@@ -40,6 +45,12 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /docker-gs-ping
 EXPOSE 8080
 
 # Run
-CMD ["/docker-gs-ping"]
+CMD ["/caltax"]
 
-#docker run -p 8080:8080 echo
+#docker build -t caltax .
+#docker run -p 8080:8080 caltax
+#https://dev.to/sadeedpv/creating-a-dockerfile-for-your-go-backend-20n5
+
+#docker run --name postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=ktaxes -d -p 5432:5432 postgres
+#docker exec -it caltax_db psql -U postgres
+#/l //show all database
