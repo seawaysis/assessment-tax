@@ -3,6 +3,7 @@ module github.com/seawaysis/assessment-tax
 go 1.21.9
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/joho/godotenv v1.5.1
 	github.com/labstack/echo/v4 v4.11.4
 	github.com/lib/pq v1.10.9

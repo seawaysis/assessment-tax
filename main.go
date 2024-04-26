@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	_ "github.com/lib/pq"
@@ -39,6 +41,16 @@ type reciveAmount struct {
 type personalDe struct {
 	PersonalDeduction float32 `json:"personalDeduction"`
 }
+type jwtCustomClaims struct {
+	Name  string `json:"name"`
+	Admin bool   `json:"admin"`
+	jwt.RegisteredClaims
+}
+
+// type reciveDeductionsDB struct {
+// 	Category []string
+// 	Amount   []float32
+// }
 
 func main() {
 	e := echo.New()
@@ -85,13 +97,60 @@ func somemiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 }
 func AuthAdmin(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		//fmt.Println("SomeMiddleware")
-		/*return c.JSON(
-			http.StatusBadGateway,
-			map[string]any{"message": "error"},
-		)*/ // if error
-		return next(c)
+		authorizationToken := c.Request().Header.Get("Authorization")
+		if authorizationToken == "" {
+			// user := c.FormValue("username")
+			// pass := c.FormValue("password")
+			user := os.Getenv("ADMIN_USERNAME")
+			pass := os.Getenv("ADMIN_PASSWORD")
+			if user != "adminTax" || pass != "admin!" {
+				return c.JSON(http.StatusBadGateway, "username or password is wrong !!")
+			} else {
+				return c.JSON(http.StatusUnauthorized, genTokenLogin())
+			}
+		} else {
+			c = checkTokenAdmin(authorizationToken, c)
+			return next(c)
+		}
 	}
+}
+func checkTokenAdmin(author string, c echo.Context) echo.Context {
+	parts := strings.Split(author, " ")
+	if !(len(parts) == 2 && parts[0] == "Bearer") {
+		c.JSON(http.StatusUnauthorized, genTokenLogin())
+		return c
+	}
+	jwtToken := parts[1]
+
+	token, err := jwt.ParseWithClaims(jwtToken, &jwtCustomClaims{}, func(t *jwt.Token) (interface{}, error) {
+		return []byte("secret"), nil
+	})
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, genTokenLogin())
+		return c
+	}
+	_, ok := token.Claims.(*jwtCustomClaims)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, genTokenLogin())
+		return c
+	}
+	c.Set("User", token)
+	return c
+}
+func genTokenLogin() any {
+	claims := &jwtCustomClaims{
+		"admin",
+		true,
+		jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Second * 300)),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	t, err := token.SignedString([]byte("secret"))
+	if err != nil {
+		return err
+	}
+	return fmt.Sprintf("Bearer token => %v", t)
 }
 func calculations(c echo.Context) error {
 	inc := new(income)
@@ -139,6 +198,12 @@ func calculations(c echo.Context) error {
 }
 func calDeduction(inc *income) float32 {
 	m := (inc.Allowances)
+	// how to cal
+	// 500,000 (รายรับ) -
+	// 60,0000 (ค่าลดหย่อนส่วนตัว) -
+	// 100,000 (เงินบริจาค) -
+	// 50,000 (k-receipt)
+	// = 290,000
 	numTax := inc.TotalIncome - 60000.0
 	for _, v := range m {
 		//fmt.Printf("type => %s | amount => %.1f", v.AllowanceType, v.Amount)
@@ -166,6 +231,9 @@ func updateDeducatePerson(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadGateway, err)
 	}
+	if re.Amount < 10000 || re.Amount > 100000 {
+		return c.JSON(http.StatusBadGateway, "personaldeducation must over 10,000 or less 100,000")
+	}
 	fmt.Printf("%.1f", re.Amount)
 	updateDeductions(re.Amount, "personal")
 	return c.JSON(http.StatusOK, &personalDe{PersonalDeduction: re.Amount})
@@ -189,11 +257,28 @@ func prepareDB() {
 	if err != nil {
 		log.Fatal("can't create table ", err)
 	}
-	_, err = conn.Exec("INSERT INTO deductions (category, amount) values ($1,$2),($3,$4) RETURNING amount", "personal", 100000, "kReceipt", 70000)
+	_, err = conn.Exec("INSERT INTO deductions (category, amount) values ($1,$2),($3,$4) RETURNING amount", "personal", 60000, "kReceipt", 70000)
 	if err != nil {
 		log.Fatal("can't insert default data ", err)
 	}
 	defer conn.Close()
+}
+func getDataDeduction(ca string) {
+	conn := connDB()
+	stmt, err := conn.Prepare("SELECT category,amount FROM deductions WHERE category = $1")
+	if err != nil {
+		log.Fatal("can't prepare data ", err)
+	}
+	rows, err := stmt.Query(ca)
+	if err != nil {
+		log.Fatal("can't query data ", err)
+	}
+	for rows.Next() {
+		var category string
+		var amount int
+		rows.Scan(&category, &amount)
+		fmt.Println(category, amount)
+	}
 }
 func updateDeductions(num float32, s string) {
 	conn := connDB()
