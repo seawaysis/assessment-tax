@@ -66,6 +66,7 @@ func main() {
 	e.GET("/", func(c echo.Context) error {
 		return c.String(http.StatusOK, "Hello, Go Bootcamp!")
 	})
+	e.POST("/tax/cal", cal, somemiddleware)
 	e.POST("/tax/calculations", calculations, somemiddleware)
 	e.POST("tax/calculations/upload-csv", uploadDeducateFile, somemiddleware)
 	e.POST("/admin/deductions/personal", updateDeducatePerson, AuthAdmin)
@@ -162,16 +163,36 @@ func genTokenLogin() any {
 	}
 	return fmt.Sprintf("Bearer token => %v", t)
 }
+func cal(c echo.Context) error {
+
+	return c.JSON(http.StatusOK, "ok call")
+}
 func calculations(c echo.Context) error {
 	inc := new(income)
-	t := new(tax)
-	t = &tax{Tax: 0.0}
 	err := c.Bind(&inc)
 	if err != nil {
 		return c.JSON(http.StatusBadGateway, err)
 	} else if inc.TotalIncome < 0 || inc.Wht < 0 {
 		return c.JSON(http.StatusBadGateway, "Please add positive number")
 	}
+	incomeData := struct {
+		TotalIncome float32
+		Wht         float32
+		Allowances  []allowance
+	}{
+		TotalIncome: inc.TotalIncome,
+		Wht:         inc.Wht,
+		Allowances:  []allowance{allowance{AllowanceType: inc.Allowances[0].AllowanceType, Amount: inc.Allowances[0].Amount}},
+	}
+	var incomeSlice incomeMultiple
+	incomeSlice = append(incomeSlice, incomeData)
+
+	t := caltaxes(incomeSlice)
+	return c.JSON(http.StatusOK, t)
+}
+func caltaxes(incomeSlice incomeMultiple) *tax {
+	t := new(tax)
+	t = &tax{Tax: 0.0}
 	l := []struct {
 		textLevel string
 		min       float32
@@ -185,51 +206,56 @@ func calculations(c echo.Context) error {
 		{textLevel: "2,000,001 ขึ้นไป", min: 2000001, max: 10000000000, rate: 35},
 	}
 
-	numTax := calDeduction(inc)
-	var tempTax, temp float32
-	for _, v := range l {
-		if numTax >= v.min {
-			if numTax > v.max {
-				temp = v.max - (v.min - 1)
+	for _, m := range incomeSlice {
+		numTax := calDeduction(m.TotalIncome, m.Wht, m.Allowances)
+		var tempTax, temp float32
+		for _, v := range l {
+			if numTax >= v.min {
+				if numTax > v.max {
+					temp = v.max - (v.min - 1)
+				} else {
+					temp = (numTax - (v.min - 1))
+				}
+				fmt.Printf("%.1f\n", temp)
+				tempTax = (temp * float32(v.rate) / 100)
+				t.Tax = t.Tax + tempTax
+				//fmt.Printf("%.1f | %.1f | %.1f\n", numTax, temp, t.Tax)
 			} else {
-				temp = (numTax - (v.min - 1))
+				tempTax = 0
 			}
-			fmt.Printf("%.1f\n", temp)
-			tempTax = (temp * float32(v.rate) / 100)
-			t.Tax = t.Tax + tempTax
-			//fmt.Printf("%.1f | %.1f | %.1f\n", numTax, temp, t.Tax)
-		} else {
-			tempTax = 0
+			t.TaxLevel = append(t.TaxLevel, taxLevel{Level: v.textLevel, Tax: tempTax})
 		}
-		t.TaxLevel = append(t.TaxLevel, taxLevel{Level: v.textLevel, Tax: tempTax})
+		calWht(m.Wht, t)
 	}
-	calWht(inc, t)
-	return c.JSON(http.StatusOK, t)
+	return t
 }
-func calDeduction(inc *income) float32 {
-	m := (inc.Allowances)
+func calDeduction(total float32, wht float32, m []allowance) float32 {
 	// how to cal
 	// 500,000 (รายรับ) -
 	// 60,0000 (ค่าลดหย่อนส่วนตัว) -
 	// 100,000 (เงินบริจาค) -
 	// 50,000 (k-receipt)
 	// = 290,000
-	numTax := inc.TotalIncome - 60000.0
+	numTax := total - 60000.0
 	for _, v := range m {
 		//fmt.Printf("type => %s | amount => %.1f", v.AllowanceType, v.Amount)
-		if v.AllowanceType == "donation" {
+		switch v.AllowanceType {
+		case "donation":
 			if v.Amount > 100000.0 {
 				numTax = numTax - 100000.0
 			} else {
 				numTax = numTax - v.Amount
 			}
+		case "k-receipt":
+			numTax = numTax - v.Amount
+		default:
 		}
 	}
 	return numTax
 }
-func calWht(inc *income, t *tax) {
-	if inc.Wht > 0 {
-		t.Tax = t.Tax - inc.Wht
+func calWht(wht float32, t *tax) {
+	if wht > 0 {
+		t.Tax = t.Tax - wht
 		if t.Tax < 0 {
 			t.Tax = 0
 		}
@@ -331,12 +357,8 @@ func uploadDeducateFile(c echo.Context) error {
 		return err
 	}
 	inc := setCSV(records)
-	for _, v := range inc {
-		fmt.Printf("%v|%v", v.TotalIncome, v.Wht)
-	}
-	//calDeduction(inc)
-	//fmt.Printf("%s\n", records)
-	//inc := new(incomeMultipl)
+	t := caltaxes(inc)
+	fmt.Printf("%v", t)
 	return c.JSON(http.StatusOK, "ok")
 }
 func setCSV(records [][]string) incomeMultiple {
