@@ -59,6 +59,7 @@ func main() {
 		return c.String(http.StatusOK, "Hello, Go Bootcamp!")
 	})
 	e.POST("/tax/calculations", calculations, somemiddleware)
+	e.POST("tax/calculations/upload-csv", uploadDeducateFile, somemiddleware)
 	e.POST("/admin/deductions/personal", updateDeducatePerson, AuthAdmin)
 	go func() {
 		err := godotenv.Load(".env")
@@ -109,16 +110,20 @@ func AuthAdmin(next echo.HandlerFunc) echo.HandlerFunc {
 				return c.JSON(http.StatusUnauthorized, genTokenLogin())
 			}
 		} else {
-			c = checkTokenAdmin(authorizationToken, c)
+			statusCode, err := checkTokenAdmin(authorizationToken)
+			if statusCode != 200 {
+				return c.JSON(http.StatusUnauthorized, fmt.Sprintf("err => %v | %s", err, genTokenLogin()))
+			}
+			c.Set("User", err)
 			return next(c)
 		}
 	}
 }
-func checkTokenAdmin(author string, c echo.Context) echo.Context {
+func checkTokenAdmin(author string) (int, any) {
 	parts := strings.Split(author, " ")
 	if !(len(parts) == 2 && parts[0] == "Bearer") {
-		c.JSON(http.StatusUnauthorized, genTokenLogin())
-		return c
+
+		return http.StatusUnauthorized, "Token Invalid"
 	}
 	jwtToken := parts[1]
 
@@ -126,16 +131,13 @@ func checkTokenAdmin(author string, c echo.Context) echo.Context {
 		return []byte("secret"), nil
 	})
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, genTokenLogin())
-		return c
+		return http.StatusUnauthorized, err
 	}
 	_, ok := token.Claims.(*jwtCustomClaims)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, genTokenLogin())
-		return c
+		return http.StatusUnauthorized, ok
 	}
-	c.Set("User", token)
-	return c
+	return http.StatusOK, token
 }
 func genTokenLogin() any {
 	claims := &jwtCustomClaims{
@@ -234,13 +236,11 @@ func updateDeducatePerson(c echo.Context) error {
 	if re.Amount < 10000 || re.Amount > 100000 {
 		return c.JSON(http.StatusBadGateway, "personaldeducation must over 10,000 or less 100,000")
 	}
-	fmt.Printf("%.1f", re.Amount)
 	updateDeductions(re.Amount, "personal")
 	return c.JSON(http.StatusOK, &personalDe{PersonalDeduction: re.Amount})
 }
 func connDB() *sql.DB {
 	connectionStr := fmt.Sprintf("user=%s password=%s dbname=%s port=5432 sslmode=disable", os.Getenv("POSTGRES_USER"), os.Getenv("POSTGRES_PASSWORD"), os.Getenv("POSTGRES_DB"))
-
 	conn, err := sql.Open("postgres", connectionStr)
 	if err != nil {
 		panic(err)
@@ -249,15 +249,15 @@ func connDB() *sql.DB {
 }
 func prepareDB() {
 	conn := connDB()
-	_, err := conn.Exec("DROP TABLE deductions;")
+	_, err := conn.Exec("CREATE TABLE IF NOT EXISTS deductions (id SERIAL PRIMARY KEY, category TEXT, amount DOUBLE PRECISION);")
 	if err != nil {
 		log.Fatal("can't create table ", err)
 	}
-	_, err = conn.Exec("CREATE TABLE IF NOT EXISTS deductions (id SERIAL PRIMARY KEY, category TEXT, amount DECIMAL(10, 1));")
+	_, err = conn.Exec("TRUNCATE deductions;")
 	if err != nil {
 		log.Fatal("can't create table ", err)
 	}
-	_, err = conn.Exec("INSERT INTO deductions (category, amount) values ($1,$2),($3,$4) RETURNING amount", "personal", 60000, "kReceipt", 70000)
+	_, err = conn.Exec("INSERT INTO deductions (category, amount) values ($1,$2),($3,$4);", "personal", 60000.0, "kReceipt", 70000.0)
 	if err != nil {
 		log.Fatal("can't insert default data ", err)
 	}
@@ -265,7 +265,7 @@ func prepareDB() {
 }
 func getDataDeduction(ca string) {
 	conn := connDB()
-	stmt, err := conn.Prepare("SELECT category,amount FROM deductions WHERE category = $1")
+	stmt, err := conn.Prepare("SELECT category,amount FROM deductions WHERE category = $1;")
 	if err != nil {
 		log.Fatal("can't prepare data ", err)
 	}
@@ -275,7 +275,7 @@ func getDataDeduction(ca string) {
 	}
 	for rows.Next() {
 		var category string
-		var amount int
+		var amount float32
 		rows.Scan(&category, &amount)
 		fmt.Println(category, amount)
 	}
@@ -306,4 +306,29 @@ func updateDeductions(num float32, s string) {
 	if err != nil {
 		log.Fatal("can't update data ", err)
 	}
+}
+func uploadDeducateFile(c echo.Context) error {
+	getDataDeduction("personal")
+	// file, err := c.FormFile("file")
+	// if err != nil {
+	// 	return err
+	// }
+	// src, err := file.Open()
+	// if err != nil {
+	// 	return err
+	// }
+	// defer src.Close()
+
+	// // Destination
+	// dst, err := os.Create(file.Filename)
+	// if err != nil {
+	// 	return err
+	// }
+	// defer dst.Close()
+
+	// // Copy
+	// if _, err = io.Copy(dst, src); err != nil {
+	// 	return err
+	// }
+	return c.JSON(http.StatusOK, "ok")
 }
