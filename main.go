@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/csv"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"reflect"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -45,6 +48,11 @@ type jwtCustomClaims struct {
 	Name  string `json:"name"`
 	Admin bool   `json:"admin"`
 	jwt.RegisteredClaims
+}
+type incomeMultiple []struct {
+	TotalIncome float32
+	Wht         float32
+	Allowances  []allowance
 }
 
 // type reciveDeductionsDB struct {
@@ -257,7 +265,7 @@ func prepareDB() {
 	if err != nil {
 		log.Fatal("can't create table ", err)
 	}
-	_, err = conn.Exec("INSERT INTO deductions (category, amount) values ($1,$2),($3,$4);", "personal", 60000.0, "kReceipt", 70000.0)
+	_, err = conn.Exec("INSERT INTO deductions (category, amount) values ($1,$2),($3,$4);", "personal", 60000.0, "kReceipt", 50000.0)
 	if err != nil {
 		log.Fatal("can't insert default data ", err)
 	}
@@ -308,27 +316,86 @@ func updateDeductions(num float32, s string) {
 	}
 }
 func uploadDeducateFile(c echo.Context) error {
-	getDataDeduction("personal")
-	// file, err := c.FormFile("file")
-	// if err != nil {
-	// 	return err
-	// }
-	// src, err := file.Open()
-	// if err != nil {
-	// 	return err
-	// }
-	// defer src.Close()
-
-	// // Destination
-	// dst, err := os.Create(file.Filename)
-	// if err != nil {
-	// 	return err
-	// }
-	// defer dst.Close()
-
-	// // Copy
-	// if _, err = io.Copy(dst, src); err != nil {
-	// 	return err
-	// }
+	file, err := c.FormFile("file")
+	if err != nil {
+		return err
+	}
+	f, err := file.Open()
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	csvReader := csv.NewReader(f)
+	records, err := csvReader.ReadAll()
+	if err != nil {
+		return err
+	}
+	inc := setCSV(records)
+	for _, v := range inc {
+		fmt.Printf("%v|%v", v.TotalIncome, v.Wht)
+	}
+	//calDeduction(inc)
+	//fmt.Printf("%s\n", records)
+	//inc := new(incomeMultipl)
 	return c.JSON(http.StatusOK, "ok")
+}
+func setCSV(records [][]string) incomeMultiple {
+	var incomeSlice incomeMultiple
+	nameCol := [][]string{{"totalIncome", "wht", "donation"}, {"totalIncome", "wht", "k-receipt"}, {"totalIncome", "wht", "donation", "k-receipt"}, {"totalIncome", "wht", "k-receipt", "donation"}}
+	checkSchema := 4
+	for i, col := range records {
+		if i == 0 {
+			for j, val := range nameCol {
+				if reflect.DeepEqual(col, val) {
+					checkSchema = j
+					break
+				}
+			}
+		} else {
+			if checkSchema != 4 {
+				lenSlice := len(nameCol[checkSchema])
+				colFloat := convertToFloat(col, lenSlice)
+				switch lenSlice {
+				case 3:
+					allowance1 := allowance{AllowanceType: nameCol[checkSchema][2], Amount: colFloat[2]}
+					incomeData := struct {
+						TotalIncome float32
+						Wht         float32
+						Allowances  []allowance
+					}{
+						TotalIncome: colFloat[0],
+						Wht:         colFloat[1],
+						Allowances:  []allowance{allowance1},
+					}
+					incomeSlice = append(incomeSlice, incomeData)
+				case 4:
+					allowance1 := allowance{AllowanceType: nameCol[checkSchema][2], Amount: colFloat[2]}
+					allowance2 := allowance{AllowanceType: nameCol[checkSchema][3], Amount: colFloat[3]}
+					incomeData := struct {
+						TotalIncome float32
+						Wht         float32
+						Allowances  []allowance
+					}{
+						TotalIncome: colFloat[0],
+						Wht:         colFloat[1],
+						Allowances:  []allowance{allowance1, allowance2},
+					}
+					incomeSlice = append(incomeSlice, incomeData)
+				default:
+				}
+			}
+		}
+	}
+	return incomeSlice
+}
+func convertToFloat(str []string, lenSlice int) []float32 {
+	newar := make([]float32, lenSlice)
+	for i, v := range str {
+		value, err := strconv.ParseFloat(v, 32)
+		if err != nil {
+			fmt.Printf("%v", err)
+		}
+		newar[i] = float32(value)
+	}
+	return newar
 }
