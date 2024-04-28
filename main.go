@@ -59,7 +59,7 @@ type incomeMultiple []struct {
 	Allowances  []allowance
 }
 type taxesCSV struct {
-	Taxes []taxes
+	Taxes []taxes `json:"taxes"`
 }
 type taxes struct {
 	TotalIncome float32 `json:"totalIncome"`
