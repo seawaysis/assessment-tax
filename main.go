@@ -82,7 +82,7 @@ func main() {
 	})
 	e.POST("/tax/cal", cal, somemiddleware)
 	e.POST("/tax/calculations", calculations, somemiddleware)
-	e.POST("tax/calculations/upload-csv", uploadDeducateFile, somemiddleware)
+	e.POST("/tax/calculations/upload-csv", uploadDeducateFile, somemiddleware)
 	e.POST("/admin/deductions/personal", updateDeducatePerson, AuthAdmin)
 	e.POST("/admin/deductions/k-receipt", updateDeducateKReceipt, AuthAdmin)
 	go func() {
