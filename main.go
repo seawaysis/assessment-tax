@@ -34,6 +34,11 @@ type tax struct {
 	Tax      float32    `json:"tax"`
 	TaxLevel []taxLevel `json:"taxLevel"`
 }
+type taxRefund struct {
+	Tax       float32    `json:"tax"`
+	TaxRefund float32    `json:"taxRefund"`
+	TaxLevel  []taxLevel `json:"taxLevel"`
+}
 type taxLevel struct {
 	Level string  `json:"level"`
 	Tax   float32 `json:"tax"`
@@ -48,6 +53,9 @@ type reciveAmount struct {
 type personalDe struct {
 	PersonalDeduction float32 `json:"personalDeduction"`
 }
+type kReceiptDe struct {
+	KReceiptDeduction float32 `json:"kReceipt"`
+}
 type jwtCustomClaims struct {
 	Name  string `json:"name"`
 	Admin bool   `json:"admin"`
@@ -59,17 +67,12 @@ type incomeMultiple []struct {
 	Allowances  []allowance
 }
 type taxesCSV struct {
-	Taxes []taxes `json:"taxes"`
+	Taxes []taxesRefund `json:"taxes"`
 }
-type taxes struct {
+type taxesRefund struct {
 	TotalIncome float32 `json:"totalIncome"`
 	Tax         float32 `json:"tax"`
 }
-
-// type reciveDeductionsDB struct {
-// 	Category []string
-// 	Amount   []float32
-// }
 
 func main() {
 	e := echo.New()
@@ -81,6 +84,7 @@ func main() {
 	e.POST("/tax/calculations", calculations, somemiddleware)
 	e.POST("tax/calculations/upload-csv", uploadDeducateFile, somemiddleware)
 	e.POST("/admin/deductions/personal", updateDeducatePerson, AuthAdmin)
+	e.POST("/admin/deductions/k-receipt", updateDeducateKReceipt, AuthAdmin)
 	go func() {
 		err := godotenv.Load(".env")
 		if err != nil {
@@ -192,11 +196,13 @@ func calculations(c echo.Context) error {
 	}{
 		TotalIncome: inc.TotalIncome,
 		Wht:         inc.Wht,
-		Allowances:  []allowance{allowance{AllowanceType: inc.Allowances[0].AllowanceType, Amount: inc.Allowances[0].Amount}},
+		//Allowances:  []allowance{allowance{AllowanceType: inc.Allowances[0].AllowanceType, Amount: inc.Allowances[0].Amount}, allowance{AllowanceType: inc.Allowances[1].AllowanceType, Amount: inc.Allowances[1].Amount}},
+	}
+	for _, v := range inc.Allowances {
+		incomeData.Allowances = append(incomeData.Allowances, allowance{AllowanceType: v.AllowanceType, Amount: v.Amount})
 	}
 	var incomeSlice incomeMultiple
 	incomeSlice = append(incomeSlice, incomeData)
-
 	r := caltaxes(incomeSlice, "level")
 	return c.JSON(http.StatusOK, r)
 }
@@ -204,14 +210,11 @@ func caltaxes(incomeSlice incomeMultiple, types string) any {
 	switch types {
 	case "level":
 		t := new(tax)
-		t = &tax{Tax: 0.0}
 		for _, m := range incomeSlice {
 			numTax := calDeduction(m.TotalIncome, m.Allowances)
-
 			sum, l := calTaxStep(numTax)
-			sum = calWht(m.Wht, sum)
+			sum, _ = calWht(m.Wht, sum)
 			for _, v := range l {
-				//parts := strings.Split(v, " ")
 				t.Tax = sum
 				t.TaxLevel = append(t.TaxLevel, taxLevel{Level: v.Level, Tax: v.Tax})
 			}
@@ -221,15 +224,16 @@ func caltaxes(incomeSlice incomeMultiple, types string) any {
 		t := new(taxesCSV)
 		for _, m := range incomeSlice {
 			numTax := calDeduction(m.TotalIncome, m.Allowances)
-
 			sum, _ := calTaxStep(numTax)
-			sum = calWht(m.Wht, sum)
-			t.Taxes = append(t.Taxes, taxes{TotalIncome: m.TotalIncome, Tax: sum})
+			sum, _ = calWht(m.Wht, sum)
+			t.Taxes = append(t.Taxes, taxesRefund{TotalIncome: m.TotalIncome, Tax: sum})
 		}
 		return t
 	default:
-		t := new(tax)
-		return t
+		{
+			t := new(tax)
+			return t
+		}
 	}
 }
 func calDeduction(total float32, m []allowance) float32 {
@@ -240,6 +244,7 @@ func calDeduction(total float32, m []allowance) float32 {
 	// 50,000 (k-receipt)
 	// = 290,000
 	numTax := total - 60000.0
+
 	for _, v := range m {
 		//fmt.Printf("type => %s | amount => %.1f", v.AllowanceType, v.Amount)
 		switch v.AllowanceType {
@@ -250,7 +255,11 @@ func calDeduction(total float32, m []allowance) float32 {
 				numTax = numTax - v.Amount
 			}
 		case "k-receipt":
-			numTax = numTax - v.Amount
+			if v.Amount > 50000.0 {
+				numTax = numTax - 50000.0
+			} else {
+				numTax = numTax - v.Amount
+			}
 		default:
 		}
 	}
@@ -285,18 +294,20 @@ func calTaxStep(numTax float32) (float32, taxLevelPass) {
 			tempTax = 0
 		}
 		t = append(t, taxLevel{Level: v.textLevel, Tax: tempTax})
-		//t.TaxLevel = append(t.TaxLevel, taxLevel{Level: v.textLevel, Tax: tempTax})
 	}
 	return sumTax, t
 }
-func calWht(wht float32, tax float32) float32 {
+func calWht(wht float32, tax float32) (float32, any) {
+	c := false
 	if wht > 0 {
 		tax = tax - wht
 		if tax < 0 {
+			c = true
+			//tax = tax * (-1)
 			tax = 0
 		}
 	}
-	return tax
+	return tax, c
 }
 func updateDeducatePerson(c echo.Context) error {
 	re := new(reciveAmount)
@@ -309,6 +320,18 @@ func updateDeducatePerson(c echo.Context) error {
 	}
 	updateDeductions(re.Amount, "personal")
 	return c.JSON(http.StatusOK, &personalDe{PersonalDeduction: re.Amount})
+}
+func updateDeducateKReceipt(c echo.Context) error {
+	re := new(reciveAmount)
+	err := c.Bind(&re)
+	if err != nil {
+		return c.JSON(http.StatusBadGateway, err)
+	}
+	if re.Amount <= 0 || re.Amount > 100000 {
+		return c.JSON(http.StatusBadGateway, "kReceipt must over 0 or less 100,000")
+	}
+	updateDeductions(re.Amount, "kReceipt")
+	return c.JSON(http.StatusOK, &kReceiptDe{KReceiptDeduction: re.Amount})
 }
 func connDB() *sql.DB {
 	connectionStr := fmt.Sprintf("user=%s password=%s dbname=%s port=5432 sslmode=disable", os.Getenv("POSTGRES_USER"), os.Getenv("POSTGRES_PASSWORD"), os.Getenv("POSTGRES_DB"))
@@ -334,22 +357,24 @@ func prepareDB() {
 	}
 	defer conn.Close()
 }
-func getDataDeduction(ca string) {
+func getDataDeduction(typess string) (allowance, error) {
 	conn := connDB()
-	stmt, err := conn.Prepare("SELECT category,amount FROM deductions WHERE category = $1;")
+	stmt, err := conn.Prepare("SELECT category,amount FROM deductions WHERE category = $1")
 	if err != nil {
 		log.Fatal("can't prepare data ", err)
 	}
-	rows, err := stmt.Query(ca)
+	rows, err := stmt.Query(typess)
 	if err != nil {
 		log.Fatal("can't query data ", err)
 	}
+	er := allowance{}
 	for rows.Next() {
 		var category string
 		var amount float32
 		rows.Scan(&category, &amount)
-		fmt.Println(category, amount)
+		er = allowance{AllowanceType: category, Amount: amount}
 	}
+	return er, err
 }
 func updateDeductions(num float32, s string) {
 	conn := connDB()
@@ -451,7 +476,7 @@ func convertToFloat(str []string, lenSlice int) []float32 {
 	for i, v := range str {
 		value, err := strconv.ParseFloat(v, 32)
 		if err != nil {
-			fmt.Printf("%v", err)
+			log.Fatal("error : ", err)
 		}
 		newar[i] = float32(value)
 	}
