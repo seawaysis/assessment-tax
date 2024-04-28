@@ -303,7 +303,7 @@ func calWht(wht float32, tax float32) (float32, any) {
 		tax = tax - wht
 		if tax < 0 {
 			c = true
-			//tax = tax * (-1)
+			//tax = tax * (-1) taxRefund
 			tax = 0
 		}
 	}
@@ -357,25 +357,26 @@ func prepareDB() {
 	}
 	defer conn.Close()
 }
-func getDataDeduction(typess string) (allowance, error) {
-	conn := connDB()
-	stmt, err := conn.Prepare("SELECT category,amount FROM deductions WHERE category = $1")
-	if err != nil {
-		log.Fatal("can't prepare data ", err)
-	}
-	rows, err := stmt.Query(typess)
-	if err != nil {
-		log.Fatal("can't query data ", err)
-	}
-	er := allowance{}
-	for rows.Next() {
-		var category string
-		var amount float32
-		rows.Scan(&category, &amount)
-		er = allowance{AllowanceType: category, Amount: amount}
-	}
-	return er, err
-}
+
+//	func getDataDeduction(typess string) (allowance, error) {
+//		conn := connDB()
+//		stmt, err := conn.Prepare("SELECT category,amount FROM deductions WHERE category = $1")
+//		if err != nil {
+//			log.Fatal("can't prepare data ", err)
+//		}
+//		rows, err := stmt.Query(typess)
+//		if err != nil {
+//			log.Fatal("can't query data ", err)
+//		}
+//		er := allowance{}
+//		for rows.Next() {
+//			var category string
+//			var amount float32
+//			rows.Scan(&category, &amount)
+//			er = allowance{AllowanceType: category, Amount: amount}
+//		}
+//		return er, err
+//	}
 func updateDeductions(num float32, s string) {
 	conn := connDB()
 	// stmt, err := conn.Prepare("SELECT id,category,amount FROM deductions")
